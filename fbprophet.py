@@ -11,23 +11,17 @@ import time
 from googleapiclient import discovery
 
 
-
-#NEED TO MOVE THIS BELOW G SHEET CONNECTER AND HAVE IT PULL THE USER VARI FROM A GET CELL REQUEST
-prediction_periods = 10 #How many predictions do we want (in this case, days)
-
-
 DATA_DIR = 'C:/Users/xbsqu/Desktop/Python Learning/Projects/Machine Learning to Predict Stock Prices'
 
 #######Connecting to G Sheet######
-
 scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_name(path.join(DATA_DIR, 'client_secret.json'), scope)
 client = gspread.authorize(creds)
 sheet = client.open('ML Stock Price Predictor')
-historical_data = sheet.get_worksheet(4) #Change sheet here, zero indexed
-###^^^^^^^^^^^^^^^^^^^^^^^^^^^^###############^^^^^^^^^^^^^^^^^^
-################That needs to be changed to the historic tab number
+historical_data = sheet.get_worksheet(1) #Change sheet here, zero indexed
+dashboard = sheet.get_worksheet(0) #Need this to get the prediction period from dashboard C7
+prediction_periods = int(dashboard.acell('C7').value) #User Value: GSheet Dashboard C7
 
 
 ###Now that I have data need to do some cleaning###
@@ -69,6 +63,7 @@ del full_dataset['is_holiday']
 #This is start of Prophet tutorial: https://facebook.github.io/prophet/docs/quick_start.html#python-api
 df = full_dataset[['Date', 'Open']]
 df.columns = ['ds', 'y'] #need to change column names for Prophet
+#df Dataframe is the Historic Stock Tab w/o weekends & holidays
 
 m = Prophet()
 m.fit(df)
@@ -98,17 +93,18 @@ forecast = m.predict(future)
 #fig1 = m.plot(forecast)
 #fig2 = m.plot_components(forecast)
 
+
 ###Splitting the data for G Sheet###
 num_days_forecasted = len(future_dates)
-past_data = forecast.head(length-prediction_periods)
+past_data_from_forecast = forecast.head(length-prediction_periods)
 forecasted_data = forecast.tail(num_days_forecasted)
 
-#Getting the important forecasted data up tp GSheet
+#Getting the important forecasted data up to GSheet
 gsheet_future = forecasted_data[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
 gsheet_future['ds'] = gsheet_future['ds'].dt.strftime('%Y-%m-%d') #Turn datetime to str
 gsheet_future = gsheet_future.applymap(str) #Turn the prices to str
 gsheet_future.insert(1, 'Placeholder', "") #I need to do this for later on & getting the data into the plot tab
-futures_tab = sheet.get_worksheet(3)
+futures_tab = sheet.get_worksheet(2)
 list_of_df_rows = gsheet_future.to_numpy().tolist()
 
 #Need to format the df so I can write rows to Gsheet
@@ -120,38 +116,38 @@ index = 3 #This is set to 3 to account for the header & startpoint, which is mos
 for list in list_of_df_rows:
     futures_tab.insert_row(list, index, 'USER_ENTERED')
     index += 1
-    time.sleep(2.0) #Need to slow the for loop so as to not exhaust G Sheet API quota
+    time.sleep(1.5) #Need to slow the for loop so as to not exhaust G Sheet API quota
 
 time.sleep(1.0)
 
 #Need to change datatypes for G Sheet for plotting
-plot_info_tab = sheet.get_worksheet(5) #These are zero indexed
+plot_info_tab = sheet.get_worksheet(3) #These are zero indexed
 
 ###################################################################################
-backtest_tab = sheet.get_worksheet(4) #This is temporary ###############################
+#backtest_tab = sheet.get_worksheet(5) #This is temporary ###############################
 ###################################################################################
 
 ###Let's format the G Sheet for auto-plotting###
+#I NEED TO NOT MOVE OVER WEEKENDS OR HOLIDAYS FROM HISTORICAL TO PLOT INFO DUMP####################
 
-#####################################I NEED TO NOT MOVE OVER WEEKENDS OR HOLIDAYS FROM HISTORICAL TO PLOT INFO DUMP####################
-#Moving over the historic data
+#Writing the historic data to the plot tab
 top_row = 2
-for i in range(1+prediction_periods, 1, -1): #The 1's accounts for the header row 
-    row_info = backtest_tab.row_values(i) #Copy from the bottom
+for i in range(1+num_days_forecasted, 1, -1): #The 1's accounts for the header row 
+    row_info = historical_data.row_values(i) #Copy from the bottom
     plot_info_tab.insert_row(row_info, top_row, 'USER_ENTERED') #Paste to the top
     top_row += 1 
-    time.sleep(2.0) #Now let it breathe
+    time.sleep(1.5) #Now let it breathe
     
 time.sleep(1.0)
 
 #Moving over the prediction data
 bottom_row = top_row #This is so the future data can append to the end of the historical data that just pasted in 
-num_prediction_lines = len(gsheet_future)
-for i in range(2, 1+num_days_forecasted): #Need to add 1 b/c range is non-inclusive
+#num_prediction_lines = len(gsheet_future)
+for i in range(2, 3+num_days_forecasted): #Need to add 3 b/c range is non-inclusive & two locked rows at top of Futures tab
     row_info = futures_tab.row_values(i) #Copy from the top
     plot_info_tab.insert_row(row_info, bottom_row, 'USER_ENTERED')  #Paste to the bottom
     bottom_row += 1
-    time.sleep(2.0) #Now let it breathe
+    time.sleep(1.5) #Now let it breathe
     
 time.sleep(1.0)
 
@@ -202,11 +198,3 @@ reqs = {"requests": [
 }
 
 res = service.spreadsheets().batchUpdate(spreadsheetId=spreadsheetId, body=reqs).execute()
-
-
-
-
-
-
-#"endColumnIndex": 1 #Leaving out rows/start column means apply to the entire column/start from first col
-

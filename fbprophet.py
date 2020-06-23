@@ -153,13 +153,13 @@ time.sleep(1.0)
 
 #Need to change the date formatting in G Sheet Plot tab for plotting continuity
 service = discovery.build('sheets', 'v4', credentials=creds) #Need to connect to Google Sheets API; earlier was Google Drive API
-spreadsheetId = '1aUpOiYR3qbF9Sd3eLB1yK7g7Id_Fz7dLe3JhsBK1toY'
+spreadsheetId = '**************************'
 
 reqs = {"requests": [
     {
         "repeatCell": {
         "range": {
-          "sheetId": 188277689,
+          "sheetId": **********,
           "startRowIndex": 0,
           "startColumnIndex": 0,
           "endColumnIndex": 1
@@ -178,7 +178,7 @@ reqs = {"requests": [
     {
       "repeatCell": {
         "range": {
-          "sheetId": 188277689,
+          "sheetId": *********,
           "startRowIndex": 1,
           "startColumnIndex": 1,
           "endColumnIndex": 5

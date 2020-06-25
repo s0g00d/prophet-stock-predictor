@@ -7,8 +7,8 @@ from os import path
 import numpy as np
 import holidays
 from datetime import date
-import time
 from googleapiclient import discovery
+import pygsheets
 
 
 DATA_DIR = 'C:/Users/xbsqu/Desktop/Python Learning/Projects/Machine Learning to Predict Stock Prices'
@@ -16,12 +16,18 @@ DATA_DIR = 'C:/Users/xbsqu/Desktop/Python Learning/Projects/Machine Learning to 
 #######Connecting to G Sheet######
 scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/drive']
+
 creds = ServiceAccountCredentials.from_json_keyfile_name(path.join(DATA_DIR, 'client_secret.json'), scope)
 client = gspread.authorize(creds)
 sheet = client.open('ML Stock Price Predictor')
 historical_data = sheet.get_worksheet(1) #Change sheet here, zero indexed
 dashboard = sheet.get_worksheet(0) #Need this to get the prediction period from dashboard C7
 prediction_periods = int(dashboard.acell('C7').value) #User Value: GSheet Dashboard C7
+
+#Pygsheets stuff for later since i messed up by not using it from the jump
+gc = pygsheets.authorize(service_file='C:/Users/xbsqu/Desktop/Python Learning/Projects/Machine Learning to Predict Stock Prices\client_secret.json')
+sh = gc.open('ML Stock Price Predictor')
+plot_info_dump_wks = sh[2] #Zero indexed
 
 
 ###Now that I have data need to do some cleaning###
@@ -104,62 +110,41 @@ gsheet_future = forecasted_data[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
 gsheet_future['ds'] = gsheet_future['ds'].dt.strftime('%Y-%m-%d') #Turn datetime to str
 gsheet_future = gsheet_future.applymap(str) #Turn the prices to str
 gsheet_future.insert(1, 'Placeholder', "") #I need to do this for later on & getting the data into the plot tab
-futures_tab = sheet.get_worksheet(2)
-list_of_df_rows = gsheet_future.to_numpy().tolist()
+gsheet_future = gsheet_future.iloc[1:]
 
-#Need to format the df so I can write rows to Gsheet
-for list in list_of_df_rows:
-    ','.join(map(str,list))
-
-#Writing to the G Sheet    
-index = 3 #This is set to 3 to account for the header & startpoint, which is most recent day in historic data set
-for list in list_of_df_rows:
-    futures_tab.insert_row(list, index, 'USER_ENTERED')
-    index += 1
-    time.sleep(1.5) #Need to slow the for loop so as to not exhaust G Sheet API quota
-
-time.sleep(1.0)
-
-#Need to change datatypes for G Sheet for plotting
-plot_info_tab = sheet.get_worksheet(3) #These are zero indexed
-
-###################################################################################
-#backtest_tab = sheet.get_worksheet(5) #This is temporary ###############################
-###################################################################################
 
 ###Let's format the G Sheet for auto-plotting###
-#I NEED TO NOT MOVE OVER WEEKENDS OR HOLIDAYS FROM HISTORICAL TO PLOT INFO DUMP####################
+plot_info_tab = sheet.get_worksheet(2) #GSpread - These are zero indexed
 
 #Writing the historic data to the plot tab
-top_row = 2
-for i in range(1+num_days_forecasted, 1, -1): #The 1's accounts for the header row 
-    row_info = historical_data.row_values(i) #Copy from the bottom
-    plot_info_tab.insert_row(row_info, top_row, 'USER_ENTERED') #Paste to the top
-    top_row += 1 
-    time.sleep(1.5) #Now let it breathe
-    
-time.sleep(1.0)
+historic_pricing_data = df[:num_days_forecasted]
+historic_pricing_data = historic_pricing_data.iloc[::-1]
+plot_info_dump_wks.set_dataframe(historic_pricing_data, 'A2') #Pygsheets
+plot_info_tab.delete_row(2) #Not zero indexed
 
-#Moving over the prediction data
-bottom_row = top_row #This is so the future data can append to the end of the historical data that just pasted in 
-#num_prediction_lines = len(gsheet_future)
-for i in range(2, 3+num_days_forecasted): #Need to add 3 b/c range is non-inclusive & two locked rows at top of Futures tab
-    row_info = futures_tab.row_values(i) #Copy from the top
-    plot_info_tab.insert_row(row_info, bottom_row, 'USER_ENTERED')  #Paste to the bottom
-    bottom_row += 1
-    time.sleep(1.5) #Now let it breathe
-    
-time.sleep(1.0)
+#Now future prices
+future_start = 2 + len(historic_pricing_data) #The 2 is for the header row and then next line to for writing
+plot_info_dump_wks.set_dataframe(gsheet_future, f'A{future_start}') #Pygsheets
+plot_info_tab.delete_row(future_start) #Delete df header out with Gspred; Not zero indexed
+
+#Finish the graph by plotting last real price atop future prices for graph continuity
+most_recent_price = historical_data.acell('B2').value
+mrp_start = future_start - 1
+plot_info_tab.update_cell(mrp_start, 3, most_recent_price)
+plot_info_tab.update_cell(mrp_start, 4, most_recent_price)
+plot_info_tab.update_cell(mrp_start, 5, most_recent_price)
+
+
 
 #Need to change the date formatting in G Sheet Plot tab for plotting continuity
 service = discovery.build('sheets', 'v4', credentials=creds) #Need to connect to Google Sheets API; earlier was Google Drive API
-spreadsheetId = '**************************'
+spreadsheetId = '1aUpOiYR3qbF9Sd3eLB1yK7g7Id_Fz7dLe3JhsBK1toY'
 
 reqs = {"requests": [
     {
         "repeatCell": {
         "range": {
-          "sheetId": **********,
+          "sheetId": 188277689,
           "startRowIndex": 0,
           "startColumnIndex": 0,
           "endColumnIndex": 1
@@ -178,7 +163,7 @@ reqs = {"requests": [
     {
       "repeatCell": {
         "range": {
-          "sheetId": *********,
+          "sheetId": 188277689,
           "startRowIndex": 1,
           "startColumnIndex": 1,
           "endColumnIndex": 5
